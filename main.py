@@ -10,10 +10,10 @@ import json
 import os
 
 pixel_pin = board.D18
-num_pixels = 49
-
+num_pixels = 52
 ORDER = neopixel.GRB
-pixels = neopixel.NeoPixel(pixel_pin, num_pixels, brightness=0.1, auto_write=False,pixel_order=ORDER)
+pixels = neopixel.NeoPixel(pixel_pin, num_pixels, brightness=1, auto_write=False,
+                    pixel_order=ORDER)
 
 # LISTENER SIDE
 # Status List:
@@ -29,57 +29,77 @@ def updateStatus():
     r = requests.get('http://the-untold.herokuapp.com/status')
     return r.json()[0]['status']
 
-def change_color(emotions):
-    if 'Fear' in emotions:
-        pixels.fill((0,255,0))
-        pixels.show()
-        print("Green")
-    elif 'Sadness' in emotions:
-        pixels.fill((0,0,255))
-        pixels.show()
-        print("Blue")
-    elif 'Joy' in emotions:
-        pixels.fill((255,255,0))
-        pixels.show()
-        print("Yellow")
-    elif 'Anger' in emotions:
-        pixels.fill((255,0,0))
-        pixels.show()
-        print("Red")
-
+    
 def main():
+    
     STATUS_LIST = ["idle", "speaker", "listener", "feedback"]
     HEROKU_URL = "http://the-untold.herokuapp.com/status/5cc1ab8dfb6fc0265f2903a3"
     bucket = 'the-untold'
-    status = updateStatus()
+    
+    pixels.fill((255,255,255))
+    pixels.show()
+    status = ''
+    flag = 0
+    print("status")
+    while status == '':
+        try:
+            status = updateStatus()
+        except:
+            print('reconnecting')
     while True:
         #Do infinite loop, catch current status each loop
         
         if status == STATUS_LIST[1]:
             status = updateStatus()
             print("LISTENER Speaker currently speaking")
+            pixels.fill((244,100,200))
+            pixels.show()
+            flag = 0
             time.sleep(2)
             # DO nothing?
             
         elif status == STATUS_LIST[2]:
-            print("LISTENER Listener currently making a feedback")
-            r = requests.get('http://the-untold.herokuapp.com/status')
-            emotion = r.json()[0]['emotion']
-            print("Speaker is currently feeling {}".format(emotion))
-            change_color(emotion)
-            filename = str(datetime.now()) + '.wav'
-            record(filename)
-            uploadFile(bucket, emotion, filename)
-            os.remove(filename)
-            #DO record feedback and upload it
-            requests.put(HEROKU_URL, json={
-                "status": STATUS_LIST[3],
-                "emotion": emotion,
-                "filename" : filename
-                })
-            time.sleep(10)
-            status = updateStatus()
+            print("ready to start")
+            if flag == 0 and (GPIO.input(26) == 1):
+                print("LISTENER Listener currently making a feedback")
+                playAudio('sound/voiceover/9.2.wav', 2)
+                r = requests.get('http://the-untold.herokuapp.com/status')
+                emotion = r.json()[0]['emotion']
+                score = r.json()[0]['score']
+                print("Speaker is currently feeling {}".format(emotion))
+                flag = 1
+                
+            if flag == 1 and (GPIO.input(26) == 1):
+                print("button pressed")
+                print(emotion)
+                print(score)
+                print("CHANGING PIXEL")
+                pixels.fill((244,100,0))
+                pixels.show()
+                filename = str(datetime.now()) + '.wav'
+                playAudio('sound/voiceover/11.1.wav')
+                flag = 2
             
+            #put if button here
+            if flag == 2 and (GPIO.input(26) == 1):
+                print('button press')
+                time.sleep(1)
+
+                record(filename)
+
+                uploadFile(bucket, emotion, filename)
+                os.remove(filename)
+                playAudio('sound/voiceover/13.1.wav')
+                #DO record feedback and upload it
+                requests.put(HEROKU_URL, json={
+                    "status": STATUS_LIST[3],
+                    "emotion": emotion,
+                    "filename" : filename
+                    })
+                status = updateStatus()
+                
+
+            time.sleep(2)
 
         elif status == STATUS_LIST[3]:
             print("LISTENER feedback is being played by the speaker")
@@ -88,11 +108,13 @@ def main():
             #DO nothing?
 
         else:
-            print("idling")
-            
-            pixels.fill((0,0,0))
+            pixels.fill((0,255,0))
             pixels.show()
+            print("idling")
             status = updateStatus()
             time.sleep(2)
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+GPIO.setup(26,GPIO.IN,pull_up_down = GPIO.PUD_DOWN)
 
 main()
